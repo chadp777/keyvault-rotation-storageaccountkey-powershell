@@ -1,22 +1,23 @@
 param($eventGridEvent, $TriggerMetadata)
 
-function RegenerateKey($keyId, $providerAddress){
+function RegenerateSas($keyId, $providerAddress){
     Write-Host "Regenerating key. Id: $keyId Resource Id: $providerAddress"
     
     $storageAccountName = ($providerAddress -split '/')[8]
     $resourceGroupName = ($providerAddress -split '/')[4]
     
-    #Regenerate key 
-    New-AzStorageAccountKey -ResourceGroupName $resourceGroupName -Name $storageAccountName -KeyName $keyId
-    $newKeyValue = (Get-AzStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $storageAccountName|where KeyName -eq $keyId).value
+    #regenerate sas uri
+	$context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
+    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -REsourceType Service,Container,Object `
+	-Permission "rwlcu" -ExpiryTime (Get-Date).AddDays(61)
 
-    return $newKeyValue
+    return $newSasValue
 }
 
-function AddSecretToKeyVault($keyVAultName,$secretName,$newAccessKeyValue,$exprityDate,$tags){
+function AddSecretToKeyVault($keyVaultName,$secretName,$newAccessKeyValue,$exprityDate,$tags){
     
     $secretvalue = ConvertTo-SecureString "$newAccessKeyValue" -AsPlainText -Force
-    Set-AzKeyVaultSecret -VaultName $keyVAultName -Name $secretName -SecretValue $secretvalue -Tag $tags -Expires $expiryDate
+    Set-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName -SecretValue $secretvalue -Tag $tags -Expires $expiryDate
 
 }
 
@@ -36,7 +37,7 @@ function GetAlternateCredentialId($keyId){
 
 function RoatateSecret($keyVaultName,$secretName){
     #Retrieve Secret
-    $secret = (Get-AzKeyVaultSecret -VaultName $keyVAultName -Name $secretName)
+    $secret = (Get-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName)
     Write-Host "Secret Retrieved"
     
     #Retrieve Secret Info
@@ -54,8 +55,8 @@ function RoatateSecret($keyVaultName,$secretName){
     Write-Host "Alternate credential id: $alternateCredentialId"
 
     #Regenerate alternate access key in provider
-    $newAccessKeyValue = (RegenerateKey $alternateCredentialId $providerAddress)[-1]
-    Write-Host "Access key regenerated. Access Key Id: $alternateCredentialId Resource Id: $providerAddress"
+    $newAccessKeyValue = (RegenerateSas $alternateCredentialId $providerAddress)[-1]
+    Write-Host "SAS URI regenerated. SAS URI Id: $alternateCredentialId Resource Id: $providerAddress"
 
     #Add new access key to Key Vault
     $newSecretVersionTags = @{}
@@ -64,9 +65,9 @@ function RoatateSecret($keyVaultName,$secretName){
     $newSecretVersionTags.ProviderAddress = $providerAddress
 
     $expiryDate = (Get-Date).AddDays([int]$validityPeriodDays).ToUniversalTime()
-    AddSecretToKeyVault $keyVAultName $secretName $newAccessKeyValue $expiryDate $newSecretVersionTags
+    AddSecretToKeyVault $keyVaultName $secretName $newAccessKeyValue $expiryDate $newSecretVersionTags
 
-    Write-Host "New access key added to Key Vault. Secret Name: $secretName"
+    Write-Host "New SAS URI added to Key Vault. Secret Name: $secretName"
 }
 
 # Make sure to pass hashtables to Out-String so they're logged correctly
@@ -74,11 +75,11 @@ $eventGridEvent | ConvertTo-Json | Write-Host
 
 $secretName = $eventGridEvent.subject
 $keyVaultName = $eventGridEvent.data.VaultName
-Write-Host "Key Vault Name: $keyVAultName"
+Write-Host "Key Vault Name: $keyVaultName"
 Write-Host "Secret Name: $secretName"
 
 #Rotate secret
 Write-Host "Rotation started."
-RoatateSecret $keyVAultName $secretName
+RoatateSecret $keyVaultName $secretName
 Write-Host "Secret Rotated Successfully"
 
