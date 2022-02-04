@@ -56,7 +56,7 @@ function RoatateSecret($keyVaultName,$secretName){
     Write-Host "Alternate credential id: $alternateCredentialId"
 
     #Regenerate alternate access key in provider
-    $newAccessKeyValue = (RegenerateSas $alternateCredentialId $providerAddress)[-1]
+    $newAccessKeyValue = RegenerateSas $alternateCredentialId $providerAddress
     Write-Host "SAS URI regenerated. SAS URI Id: $alternateCredentialId Resource Id: $providerAddress"
 
     #Add new access key to Key Vault
