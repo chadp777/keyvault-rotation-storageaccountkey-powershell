@@ -10,9 +10,10 @@ function RegenerateSas($keyId, $providerAddress){
     $resourceGroupName = ($providerAddress -split '/')[4]
     
     #regenerate sas uri
-	$context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
-    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -REsourceType Service,Container,Object `
-	-Permission "rwlcu" -ExpiryTime (Get-Date).AddDays(61)
+    $context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
+    Write "Context: $context"
+    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -ResourceType Service,Container,Object -Permission "rwlcu" `
+    -ExpiryTime (Get-Date).AddDays(61)
 
     return $newSasValue
 }
@@ -58,7 +59,7 @@ function RoatateSecret($keyVaultName,$secretName){
     Write-Host "Alternate credential id: $alternateCredentialId"
 
     #Regenerate alternate SAS URI in provider
-    $newAccessKeyValue = (RegenerateKey $alternateCredentialId $providerAddress)[-1]
+    $newAccessKeyValue = RegenerateKey $alternateCredentialId $providerAddress
     Write-Host "SAS URI regenerated. SAS URI Id: $alternateCredentialId Resource Id: $providerAddress"
 
     #Add new SAS URI to Key Vault
