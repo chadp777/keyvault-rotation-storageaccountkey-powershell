@@ -7,9 +7,10 @@ function RegenerateSas($keyId, $providerAddress){
     $resourceGroupName = ($providerAddress -split '/')[4]
     
     #regenerate sas uri
-	$context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
-    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -REsourceType Service,Container,Object `
-	-Permission "rwlcu" -ExpiryTime (Get-Date).AddDays(61)
+    $context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
+    Write-Host "Context: $context"
+    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -ResourceType Service,Container,Object -Permission "rwlcu" `
+    -ExpiryTime (Get-Date).AddDays(61)
 
     return $newSasValue
 }
