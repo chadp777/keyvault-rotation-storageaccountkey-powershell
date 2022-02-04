@@ -3,24 +3,24 @@ using namespace System.Net
 # Input bindings are passed in via param block.
 param($Request, $TriggerMetadata)
 
-function RegenerateKey($keyId, $providerAddress){
+function RegenerateSas($keyId, $providerAddress){
     Write-Host "Regenerating key. Id: $keyId Resource Id: $providerAddress"
     
     $storageAccountName = ($providerAddress -split '/')[8]
     $resourceGroupName = ($providerAddress -split '/')[4]
     
-    #Regenerate key 
-    New-AzStorageAccountKey -ResourceGroupName $resourceGroupName -Name $storageAccountName -KeyName $keyId
-    $newKeyValue = (Get-AzStorageAccountKey -ResourceGroupName $resourceGroupName -AccountName $storageAccountName|where KeyName -eq $keyId).value
+    #regenerate sas uri
+	$context = (Get-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName).context
+    $newSasValue = New-AzStorageAccountSASToken -Context $context -Service Blob,Table -REsourceType Service,Container,Object `
+	-Permission "rwlcu" -ExpiryTime (Get-Date).AddDays(61)
 
-
-    return $newKeyValue
+    return $newSasValue
 }
 
-function AddSecretToKeyVault($keyVAultName,$secretName,$newAccessKeyValue,$exprityDate,$tags){
+function AddSecretToKeyVault($keyVaultName,$secretName,$newAccessKeyValue,$exprityDate,$tags){
     
     $secretvalue = ConvertTo-SecureString "$newAccessKeyValue" -AsPlainText -Force
-    Set-AzKeyVaultSecret -VaultName $keyVAultName -Name $secretName -SecretValue $secretvalue -Tag $tags -Expires $expiryDate
+    Set-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName -SecretValue $secretvalue -Tag $tags -Expires $expiryDate
 
 }
 
@@ -40,7 +40,7 @@ function GetAlternateCredentialId($keyId){
 
 function RoatateSecret($keyVaultName,$secretName){
     #Retrieve Secret
-    $secret = (Get-AzKeyVaultSecret -VaultName $keyVAultName -Name $secretName)
+    $secret = (Get-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName)
     Write-Host "Secret Retrieved"
     
     #Retrieve Secret Info
@@ -57,20 +57,20 @@ function RoatateSecret($keyVaultName,$secretName){
     $alternateCredentialId = GetAlternateCredentialId $credentialId
     Write-Host "Alternate credential id: $alternateCredentialId"
 
-    #Regenerate alternate access key in provider
+    #Regenerate alternate SAS URI in provider
     $newAccessKeyValue = (RegenerateKey $alternateCredentialId $providerAddress)[-1]
-    Write-Host "Access key regenerated. Access Key Id: $alternateCredentialId Resource Id: $providerAddress"
+    Write-Host "SAS URI regenerated. SAS URI Id: $alternateCredentialId Resource Id: $providerAddress"
 
-    #Add new access key to Key Vault
+    #Add new SAS URI to Key Vault
     $newSecretVersionTags = @{}
     $newSecretVersionTags.ValidityPeriodDays = $validityPeriodDays
     $newSecretVersionTags.CredentialId=$alternateCredentialId
     $newSecretVersionTags.ProviderAddress = $providerAddress
 
     $expiryDate = (Get-Date).AddDays([int]$validityPeriodDays).ToUniversalTime()
-    AddSecretToKeyVault $keyVAultName $secretName $newAccessKeyValue $expiryDate $newSecretVersionTags
+    AddSecretToKeyVault $keyVaultName $secretName $newAccessKeyValue $expiryDate $newSecretVersionTags
 
-    Write-Host "New access key added to Key Vault. Secret Name: $secretName"
+    Write-Host "New SAS URI added to Key Vault. Secret Name: $secretName"
 }
 
 
@@ -79,20 +79,20 @@ Write-Host "HTTP trigger function processed a request."
 
 Try{
     #Validate request paramaters
-    $keyVAultName = $Request.Query.KeyVaultName
+    $keyVaultName = $Request.Query.keyVaultName
     $secretName = $Request.Query.SecretName
-    if (-not $keyVAultName -or -not $secretName ) {
+    if (-not $keyVaultName -or -not $secretName ) {
         $status = [HttpStatusCode]::BadRequest
-        $body = "Please pass a KeyVaultName and SecretName on the query string"
+        $body = "Please pass a keyVaultName and SecretName on the query string"
         break
     }
     
-    Write-Host "Key Vault Name: $keyVAultName"
+    Write-Host "Key Vault Name: $keyVaultName"
     Write-Host "Secret Name: $secretName"
     
     #Rotate secret
     Write-Host "Rotation started. Secret Name: $secretName"
-    RoatateSecret $keyVAultName $secretName
+    RoatateSecret $keyVaultName $secretName
 
     $status = [HttpStatusCode]::Ok
     $body = "Secret Rotated Successfully"
